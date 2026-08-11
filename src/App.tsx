@@ -79,7 +79,9 @@ export default function App() {
         type: ext,
         file: f,
         isAnalyzing: ext === 'PDF',
-        error: ext !== 'PDF' ? 'Hanya file PDF yang dapat dianalisis.' : undefined
+        error: ['DOCX', 'DOC', 'XLSX', 'XLS'].includes(ext) 
+          ? 'File Word/Excel tidak bisa dianalisa akurat di browser. Mohon "Save As" ke PDF.' 
+          : (ext !== 'PDF' ? 'Format tidak didukung. Harap unggah PDF.' : undefined)
       } as FileRow;
     });
 
@@ -139,7 +141,7 @@ export default function App() {
             >
               <div className="upload-icon"><CloudUpload size={48}/></div>
               <h3>Tarik & Lepas PDF di sini</h3>
-              <p>Atau klik untuk memilih file (Maksimal 100MB)</p>
+              <p>Mendukung PDF, Word, dan Excel (Maksimal 100MB)</p>
             </div>
 
             {files.length > 0 && (
@@ -239,7 +241,7 @@ export default function App() {
         )}
       </main>
 
-      <input ref={input} type="file" multiple accept=".pdf" hidden onChange={(e:ChangeEvent<HTMLInputElement>)=>addFiles(e.target.files)}/>
+      <input ref={input} type="file" multiple accept=".pdf,.docx,.doc,.xlsx,.xls" hidden onChange={(e:ChangeEvent<HTMLInputElement>)=>addFiles(e.target.files)}/>
 
       {showSettings && (
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
