@@ -1,5 +1,5 @@
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react'
-import { FileText, CloudUpload, Settings, X, Loader2, Image, ChevronLeft, Trash2 } from 'lucide-react'
+import { FileText, CloudUpload, Settings, X, Loader2, Image, ChevronLeft, Trash2, FileCheck2 } from 'lucide-react'
 import { analyzePDF, PageAnalysis, ColorCategory } from './pdfAnalyzer'
 
 type Pricing = {
@@ -9,12 +9,17 @@ type Pricing = {
   high: number;
 };
 
-const DEFAULT_PRICING: Pricing = {
-  bw: 500,
-  low: 1000,
-  medium: 1500,
-  high: 2000
+type AppConfig = {
+  pricing: Pricing;
+  apiSecret: string;
+}
+
+const DEFAULT_CONFIG: AppConfig = {
+  pricing: { bw: 500, low: 1000, medium: 1500, high: 2000 },
+  apiSecret: ''
 };
+
+const OFFICE_EXTENSIONS = ['DOCX', 'DOC', 'XLSX', 'XLS'];
 
 type FileRow = { 
   id: string; 
@@ -28,6 +33,7 @@ type FileRow = {
   type: string; 
   details?: PageAnalysis[]; 
   isAnalyzing?: boolean; 
+  isConverting?: boolean;
   file?: File;
   error?: string;
 }
@@ -40,8 +46,32 @@ function formatRupiah(number: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
 }
 
+async function convertFileToPDF(file: File, secret: string): Promise<File> {
+  const formData = new FormData();
+  formData.append('File', file);
+  
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  
+  const res = await fetch(`https://v2.convertapi.com/convert/${ext}/to/pdf?Secret=${secret}`, {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.Message || 'Gagal mengonversi dokumen');
+  }
+
+  const data = await res.json();
+  const fileData = data.Files[0].FileData;
+  
+  const resBase64 = await fetch(`data:application/pdf;base64,${fileData}`);
+  const blob = await resBase64.blob();
+  return new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".pdf", { type: 'application/pdf' });
+}
+
 export default function App() {
-  const [pricing, setPricing] = useState<Pricing>(DEFAULT_PRICING);
+  const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [showSettings, setShowSettings] = useState(false);
   const [files, setFiles] = useState<FileRow[]>([]); 
   const [drag, setDrag] = useState(false); 
@@ -50,27 +80,83 @@ export default function App() {
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    const saved = localStorage.getItem('swiftprint_pricing');
+    const saved = localStorage.getItem('swiftprint_config');
     if (saved) {
-      try { setPricing(JSON.parse(saved)); } catch(e) {}
+      try { setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(saved) }); } catch(e) {}
+    } else {
+      const oldPricing = localStorage.getItem('swiftprint_pricing');
+      if (oldPricing) {
+        try { setConfig(c => ({...c, pricing: JSON.parse(oldPricing)})); } catch(e) {}
+      }
     }
   }, []);
 
-  const savePricing = (newPricing: Pricing) => {
-    setPricing(newPricing);
-    localStorage.setItem('swiftprint_pricing', JSON.stringify(newPricing));
+  const saveConfig = (newConfig: AppConfig) => {
+    setConfig(newConfig);
+    localStorage.setItem('swiftprint_config', JSON.stringify(newConfig));
     setShowSettings(false);
   };
 
   const calculatePrice = (f: FileRow) => {
-    return (f.bwPages * pricing.bw) + (f.lowColorPages * pricing.low) + (f.mediumColorPages * pricing.medium) + (f.highColorPages * pricing.high);
+    return (f.bwPages * config.pricing.bw) + (f.lowColorPages * config.pricing.low) + (f.mediumColorPages * config.pricing.medium) + (f.highColorPages * config.pricing.high);
   };
+
+  const processFile = async (nf: FileRow) => {
+    let targetFile = nf.file;
+    
+    if (nf.isConverting && targetFile) {
+      try {
+        targetFile = await convertFileToPDF(targetFile, config.apiSecret);
+        setFiles(prev => prev.map(f => f.id === nf.id ? { ...f, isConverting: false, isAnalyzing: true } : f));
+      } catch (e: any) {
+        setFiles(prev => prev.map(f => f.id === nf.id ? { ...f, isConverting: false, isAnalyzing: false, error: e.message || 'Konversi gagal' } : f));
+        return;
+      }
+    }
+
+    if (targetFile) {
+      try {
+        const res = await analyzePDF(targetFile);
+        setFiles(prev => prev.map(f => f.id === nf.id ? { 
+          ...f, 
+          pages: res.totalPages, 
+          bwPages: res.bwPages,
+          lowColorPages: res.lowColorPages,
+          mediumColorPages: res.mediumColorPages,
+          highColorPages: res.highColorPages,
+          details: res.pages, 
+          isAnalyzing: false,
+          isConverting: false
+        } : f));
+      } catch(e) {
+        setFiles(prev => prev.map(f => f.id === nf.id ? { ...f, isAnalyzing: false, isConverting: false, error: 'Gagal menganalisis PDF' } : f));
+      }
+    }
+  }
 
   const addFiles = async (list: FileList | null) => { 
     if (!list?.length) return; 
     
     const newFiles = Array.from(list).map(f => {
       const ext = f.name.split('.').pop()?.toUpperCase() || '';
+      const isOffice = OFFICE_EXTENSIONS.includes(ext);
+      
+      let error = undefined;
+      let isConverting = false;
+      let isAnalyzing = false;
+      
+      if (ext === 'PDF') {
+        isAnalyzing = true;
+      } else if (isOffice) {
+        if (!config.apiSecret) {
+          error = 'Sistem butuh "ConvertAPI Secret" di Pengaturan untuk bisa otomatis konversi Word/Excel.';
+        } else {
+          isConverting = true;
+        }
+      } else {
+        error = 'Format tidak didukung. Harap unggah PDF, Word, atau Excel.';
+      }
+
       return { 
         id: Math.random().toString(36).substring(7),
         name: f.name,
@@ -78,33 +164,17 @@ export default function App() {
         pages: 0, bwPages: 0, lowColorPages: 0, mediumColorPages: 0, highColorPages: 0,
         type: ext,
         file: f,
-        isAnalyzing: ext === 'PDF',
-        error: ['DOCX', 'DOC', 'XLSX', 'XLS'].includes(ext) 
-          ? 'File Word/Excel tidak bisa dianalisa akurat di browser. Mohon "Save As" ke PDF.' 
-          : (ext !== 'PDF' ? 'Format tidak didukung. Harap unggah PDF.' : undefined)
+        isConverting,
+        isAnalyzing,
+        error
       } as FileRow;
     });
 
     setFiles(v => [...newFiles, ...v]); 
 
     for (const nf of newFiles) {
-      if (nf.isAnalyzing && nf.file) {
-        try {
-          const res = await analyzePDF(nf.file);
-          setFiles(prev => prev.map(f => f.id === nf.id ? { 
-            ...f, 
-            pages: res.totalPages, 
-            bwPages: res.bwPages,
-            lowColorPages: res.lowColorPages,
-            mediumColorPages: res.mediumColorPages,
-            highColorPages: res.highColorPages,
-            details: res.pages, 
-            isAnalyzing: false 
-          } : f));
-        } catch(e) {
-          console.error(e);
-          setFiles(prev => prev.map(f => f.id === nf.id ? { ...f, isAnalyzing: false, error: 'Gagal menganalisis PDF' } : f));
-        }
+      if (!nf.error && (nf.isConverting || nf.isAnalyzing)) {
+        processFile(nf); 
       }
     }
   }
@@ -125,7 +195,7 @@ export default function App() {
           <h2>SwiftPrint <span>Analyzer</span></h2>
         </div>
         <button className="settings-btn" onClick={() => setShowSettings(true)}>
-          <Settings size={18}/> Pengaturan Harga
+          <Settings size={18}/> Pengaturan
         </button>
       </header>
 
@@ -140,7 +210,7 @@ export default function App() {
               onClick={() => input.current?.click()}
             >
               <div className="upload-icon"><CloudUpload size={48}/></div>
-              <h3>Tarik & Lepas PDF di sini</h3>
+              <h3>Tarik & Lepas Dokumen di sini</h3>
               <p>Mendukung PDF, Word, dan Excel (Maksimal 100MB)</p>
             </div>
 
@@ -152,7 +222,7 @@ export default function App() {
                     <div className="file-card" key={f.id} onClick={() => f.pages > 0 && setSelectedDocId(f.id)}>
                       <div className="file-card-header">
                         <div className="file-info">
-                          <FileText className="file-icon" size={20}/>
+                          <FileCheck2 className="file-icon" size={20} style={{color: f.type === 'PDF' ? '#ef4444' : f.type.includes('DOC') ? '#2563eb' : '#16a34a'}}/>
                           <div>
                             <strong>{f.name}</strong>
                             <small>{f.size}</small>
@@ -164,8 +234,10 @@ export default function App() {
                       <div className="file-card-body">
                         {f.error ? (
                           <span className="error-text">{f.error}</span>
+                        ) : f.isConverting ? (
+                          <div className="analyzing"><Loader2 className="spin" size={16}/> Mengubah ke PDF...</div>
                         ) : f.isAnalyzing ? (
-                          <div className="analyzing"><Loader2 className="spin" size={16}/> Menganalisis dokumen...</div>
+                          <div className="analyzing"><Loader2 className="spin" size={16}/> Menganalisis warna...</div>
                         ) : (
                           <>
                             <div className="page-summary">
@@ -202,19 +274,19 @@ export default function App() {
                 <strong>{selectedDoc?.pages}</strong>
               </div>
               <div className="stat-box bw">
-                <span>Hitam Putih (@ {formatRupiah(pricing.bw)})</span>
+                <span>Hitam Putih (@ {formatRupiah(config.pricing.bw)})</span>
                 <strong>{selectedDoc?.bwPages}</strong>
               </div>
               <div className="stat-box low">
-                <span>Warna Ringan (@ {formatRupiah(pricing.low)})</span>
+                <span>Warna Ringan (@ {formatRupiah(config.pricing.low)})</span>
                 <strong>{selectedDoc?.lowColorPages}</strong>
               </div>
               <div className="stat-box med">
-                <span>Warna Sedang (@ {formatRupiah(pricing.medium)})</span>
+                <span>Warna Sedang (@ {formatRupiah(config.pricing.medium)})</span>
                 <strong>{selectedDoc?.mediumColorPages}</strong>
               </div>
               <div className="stat-box high">
-                <span>Warna Penuh (@ {formatRupiah(pricing.high)})</span>
+                <span>Warna Penuh (@ {formatRupiah(config.pricing.high)})</span>
                 <strong>{selectedDoc?.highColorPages}</strong>
               </div>
             </div>
@@ -247,41 +319,55 @@ export default function App() {
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Pengaturan Harga</h2>
+              <h2>Pengaturan</h2>
               <button onClick={() => setShowSettings(false)}><X size={20}/></button>
             </div>
             <div className="modal-body">
-              <p className="help-text">Atur harga per lembar berdasarkan intensitas warna yang terdeteksi pada dokumen.</p>
               
               <form onSubmit={e => {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
-                savePricing({
-                  bw: Number(fd.get('bw')),
-                  low: Number(fd.get('low')),
-                  medium: Number(fd.get('medium')),
-                  high: Number(fd.get('high')),
+                saveConfig({
+                  apiSecret: fd.get('apiSecret') as string,
+                  pricing: {
+                    bw: Number(fd.get('bw')),
+                    low: Number(fd.get('low')),
+                    medium: Number(fd.get('medium')),
+                    high: Number(fd.get('high')),
+                  }
                 });
               }}>
-                <div className="form-group">
-                  <label><span className="dot dot-bw"></span> Hitam Putih (0%)</label>
-                  <input type="number" name="bw" defaultValue={pricing.bw} required />
+                <div className="settings-section">
+                  <h3>Integrasi ConvertAPI</h3>
+                  <p className="help-text" style={{marginTop: 0}}>Dibutuhkan agar file Word/Excel bisa dibaca. Daftar di convertapi.com untuk mendapatkan Secret.</p>
+                  <div className="form-group">
+                    <input type="password" name="apiSecret" placeholder="Masukkan ConvertAPI Secret Anda..." defaultValue={config.apiSecret} />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label><span className="dot dot-low"></span> Warna Ringan (0.1% - 5%)</label>
-                  <input type="number" name="low" defaultValue={pricing.low} required />
+
+                <div className="settings-section" style={{marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e2e8f0'}}>
+                  <h3>Tarif Harga per Lembar</h3>
+                  <div className="form-group">
+                    <label><span className="dot dot-bw"></span> Hitam Putih (0%)</label>
+                    <input type="number" name="bw" defaultValue={config.pricing.bw} required />
+                  </div>
+                  <div className="form-group">
+                    <label><span className="dot dot-low"></span> Warna Ringan (0.1% - 5%)</label>
+                    <input type="number" name="low" defaultValue={config.pricing.low} required />
+                  </div>
+                  <div className="form-group">
+                    <label><span className="dot dot-med"></span> Warna Sedang (5% - 30%)</label>
+                    <input type="number" name="medium" defaultValue={config.pricing.medium} required />
+                  </div>
+                  <div className="form-group">
+                    <label><span className="dot dot-high"></span> Warna Penuh (&gt; 30%)</label>
+                    <input type="number" name="high" defaultValue={config.pricing.high} required />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label><span className="dot dot-med"></span> Warna Sedang (5% - 30%)</label>
-                  <input type="number" name="medium" defaultValue={pricing.medium} required />
-                </div>
-                <div className="form-group">
-                  <label><span className="dot dot-high"></span> Warna Penuh (&gt; 30%)</label>
-                  <input type="number" name="high" defaultValue={pricing.high} required />
-                </div>
+
                 <div className="form-actions">
                   <button type="button" className="btn-secondary" onClick={() => setShowSettings(false)}>Batal</button>
-                  <button type="submit" className="btn-primary">Simpan Harga</button>
+                  <button type="submit" className="btn-primary">Simpan Pengaturan</button>
                 </div>
               </form>
             </div>

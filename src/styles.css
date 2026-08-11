@@ -81,7 +81,8 @@ body { margin: 0; background: #f4f7fb; color: #1e293b; font-family: 'Inter', san
 .modal-header h2 { margin: 0; font-size: 18px; color: #0f172a; }
 .modal-header button { background: none; border: none; color: #64748b; cursor: pointer; padding: 4px; border-radius: 6px; }
 .modal-header button:hover { background: #f1f5f9; color: #0f172a; }
-.modal-body { padding: 24px; }
+.modal-body { padding: 24px; overflow-y: auto; max-height: calc(100vh - 120px); }
+.settings-section h3 { margin: 0 0 8px 0; font-size: 15px; color: #0f172a; }
 .help-text { margin: 0 0 24px 0; color: #64748b; font-size: 13px; line-height: 1.5; }
 
 .form-group { margin-bottom: 16px; }
