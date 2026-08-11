@@ -77,6 +77,7 @@ async function convertFileToPDF(file: File, secret: string): Promise<File> {
 export default function App() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [showSettings, setShowSettings] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'harga' | 'api'>('harga');
   const [files, setFiles] = useState<FileRow[]>([]); 
   const [drag, setDrag] = useState(false); 
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
@@ -326,6 +327,12 @@ export default function App() {
               <h2>Pengaturan</h2>
               <button onClick={() => setShowSettings(false)}><X size={20}/></button>
             </div>
+            
+            <div className="settings-tabs">
+              <button type="button" className={activeSettingsTab === 'harga' ? 'active' : ''} onClick={() => setActiveSettingsTab('harga')}>Harga Cetak</button>
+              <button type="button" className={activeSettingsTab === 'api' ? 'active' : ''} onClick={() => setActiveSettingsTab('api')}>Integrasi API</button>
+            </div>
+
             <div className="modal-body">
               
               <form onSubmit={e => {
@@ -341,39 +348,45 @@ export default function App() {
                   }
                 });
               }}>
-                <div className="settings-section">
-                  <h3>Integrasi ConvertAPI</h3>
-                  <p className="help-text" style={{marginTop: 0}}>Dibutuhkan agar file Word/Excel bisa dibaca. Daftar di convertapi.com untuk mendapatkan Secret. Anda bisa memasukkan <b>banyak API Secret sekaligus</b> (pisahkan dengan koma atau Enter) untuk menggabungkan kuota dari banyak akun!</p>
-                  <div className="form-group">
-                    <textarea 
-                      name="apiSecret" 
-                      placeholder="Contoh:&#10;RahasiaAkun1&#10;RahasiaAkun2&#10;RahasiaAkun3" 
-                      defaultValue={config.apiSecret} 
-                      rows={4}
-                      style={{width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', fontFamily: 'inherit', resize: 'vertical'}}
-                    />
+                {activeSettingsTab === 'api' && (
+                  <div className="settings-section">
+                    <h3>Konfigurasi ConvertAPI</h3>
+                    <p className="help-text" style={{marginTop: 0}}>Dibutuhkan agar file Word/Excel bisa dibaca. Daftar di convertapi.com untuk mendapatkan Secret. Anda bisa memasukkan <b>banyak API Secret sekaligus</b> (pisahkan dengan koma atau Enter) untuk menggabungkan kuota dari banyak akun!</p>
+                    <div className="form-group">
+                      <textarea 
+                        name="apiSecret" 
+                        placeholder="Contoh:&#10;RahasiaAkun1&#10;RahasiaAkun2&#10;RahasiaAkun3" 
+                        defaultValue={config.apiSecret} 
+                        rows={5}
+                        style={{width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', fontFamily: 'inherit', resize: 'vertical'}}
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
-                <div className="settings-section" style={{marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #e2e8f0'}}>
-                  <h3>Tarif Harga per Lembar</h3>
-                  <div className="form-group">
-                    <label><span className="dot dot-bw"></span> Hitam Putih (0%)</label>
-                    <input type="number" name="bw" defaultValue={config.pricing.bw} required />
+                {activeSettingsTab === 'harga' && (
+                  <div className="settings-section">
+                    <h3>Tarif Harga per Lembar</h3>
+                    <div className="form-group">
+                      <label><span className="dot dot-bw"></span> Hitam Putih (0%)</label>
+                      <input type="number" name="bw" defaultValue={config.pricing.bw} required />
+                    </div>
+                    <div className="form-group">
+                      <label><span className="dot dot-low"></span> Warna Ringan (0.1% - 5%)</label>
+                      <input type="number" name="low" defaultValue={config.pricing.low} required />
+                    </div>
+                    <div className="form-group">
+                      <label><span className="dot dot-med"></span> Warna Sedang (5% - 30%)</label>
+                      <input type="number" name="medium" defaultValue={config.pricing.medium} required />
+                    </div>
+                    <div className="form-group">
+                      <label><span className="dot dot-high"></span> Warna Penuh (&gt; 30%)</label>
+                      <input type="number" name="high" defaultValue={config.pricing.high} required />
+                    </div>
+                    {/* Hidden input to retain API Secret value when saving from Harga tab */}
+                    <input type="hidden" name="apiSecret" value={config.apiSecret} />
                   </div>
-                  <div className="form-group">
-                    <label><span className="dot dot-low"></span> Warna Ringan (0.1% - 5%)</label>
-                    <input type="number" name="low" defaultValue={config.pricing.low} required />
-                  </div>
-                  <div className="form-group">
-                    <label><span className="dot dot-med"></span> Warna Sedang (5% - 30%)</label>
-                    <input type="number" name="medium" defaultValue={config.pricing.medium} required />
-                  </div>
-                  <div className="form-group">
-                    <label><span className="dot dot-high"></span> Warna Penuh (&gt; 30%)</label>
-                    <input type="number" name="high" defaultValue={config.pricing.high} required />
-                  </div>
-                </div>
+                )}
 
                 <div className="form-actions">
                   <button type="button" className="btn-secondary" onClick={() => setShowSettings(false)}>Batal</button>
