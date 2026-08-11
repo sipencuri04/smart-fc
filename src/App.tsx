@@ -52,7 +52,11 @@ async function convertFileToPDF(file: File, secret: string): Promise<File> {
   
   const ext = file.name.split('.').pop()?.toLowerCase();
   
-  const res = await fetch(`https://v2.convertapi.com/convert/${ext}/to/pdf?Secret=${secret}`, {
+  // Jika secret mengandung koma atau enter, jadikan array dan pilih acak
+  const secrets = secret.split(/[\n,]+/).map(s => s.trim()).filter(s => s);
+  const activeSecret = secrets.length > 0 ? secrets[Math.floor(Math.random() * secrets.length)] : secret;
+
+  const res = await fetch(`https://v2.convertapi.com/convert/${ext}/to/pdf?Secret=${activeSecret}`, {
     method: 'POST',
     body: formData
   });
@@ -339,9 +343,15 @@ export default function App() {
               }}>
                 <div className="settings-section">
                   <h3>Integrasi ConvertAPI</h3>
-                  <p className="help-text" style={{marginTop: 0}}>Dibutuhkan agar file Word/Excel bisa dibaca. Daftar di convertapi.com untuk mendapatkan Secret.</p>
+                  <p className="help-text" style={{marginTop: 0}}>Dibutuhkan agar file Word/Excel bisa dibaca. Daftar di convertapi.com untuk mendapatkan Secret. Anda bisa memasukkan <b>banyak API Secret sekaligus</b> (pisahkan dengan koma atau Enter) untuk menggabungkan kuota dari banyak akun!</p>
                   <div className="form-group">
-                    <input type="password" name="apiSecret" placeholder="Masukkan ConvertAPI Secret Anda..." defaultValue={config.apiSecret} />
+                    <textarea 
+                      name="apiSecret" 
+                      placeholder="Contoh:&#10;RahasiaAkun1&#10;RahasiaAkun2&#10;RahasiaAkun3" 
+                      defaultValue={config.apiSecret} 
+                      rows={4}
+                      style={{width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', fontFamily: 'inherit', resize: 'vertical'}}
+                    />
                   </div>
                 </div>
 
